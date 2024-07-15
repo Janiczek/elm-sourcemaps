@@ -19,6 +19,7 @@ import qualified AST.Utils.Type as Type
 import qualified Data.Index as Index
 import qualified Elm.ModuleName as ModuleName
 import qualified Optimize.Names as Names
+import qualified Reporting.Annotation as A
 
 
 
@@ -38,7 +39,7 @@ toEncoder tipe =
       error "toEncoder: type variable"
 
     Can.TUnit ->
-      Opt.Function [Name.dollar] <$> encode "null"
+      Opt.Function [A.At A.zero Name.dollar] <$> encode "null"
 
     Can.TTuple a b c ->
       encodeTuple a b c
@@ -50,7 +51,7 @@ toEncoder tipe =
           | name == Name.int    -> encode "int"
           | name == Name.bool   -> encode "bool"
           | name == Name.string -> encode "string"
-          | name == Name.value  -> Names.registerGlobal ModuleName.basics Name.identity
+          | name == Name.value  -> Names.registerGlobal A.zero ModuleName.basics Name.identity
 
         [arg]
           | name == Name.maybe -> encodeMaybe arg
@@ -67,13 +68,13 @@ toEncoder tipe =
       let
         encodeField (name, Can.FieldType _ fieldType) =
           do  encoder <- toEncoder fieldType
-              let value = Opt.Call encoder [Opt.Access (Opt.VarLocal Name.dollar) name]
-              return $ Opt.Tuple (Opt.Str (Name.toElmString name)) value Nothing
+              let value = Opt.Call A.zero encoder [Opt.Access (Opt.VarLocal A.zero Name.dollar) A.zero name]
+              return $ Opt.Tuple (Opt.Str A.zero (Name.toElmString name)) value Nothing
       in
       do  object <- encode "object"
           keyValuePairs <- traverse encodeField (Map.toList fields)
           Names.registerFieldDict fields $
-            Opt.Function [Name.dollar] (Opt.Call object [Opt.List keyValuePairs])
+            Opt.Function [A.At A.zero Name.dollar] (Opt.Call A.zero object [Opt.List A.zero keyValuePairs])
 
 
 
@@ -84,23 +85,24 @@ encodeMaybe :: Can.Type -> Names.Tracker Opt.Expr
 encodeMaybe tipe =
   do  null <- encode "null"
       encoder <- toEncoder tipe
-      destruct <- Names.registerGlobal ModuleName.maybe "destruct"
-      return $ Opt.Function [Name.dollar] $
-        Opt.Call destruct [ null, encoder, Opt.VarLocal Name.dollar ]
+      destruct <- Names.registerGlobal A.zero ModuleName.maybe "destruct"
+      return $
+        Opt.Function [A.At A.zero Name.dollar] $
+          Opt.Call A.zero destruct [ null, encoder, Opt.VarLocal A.zero Name.dollar ]
 
 
 encodeList :: Can.Type -> Names.Tracker Opt.Expr
 encodeList tipe =
   do  list <- encode "list"
       encoder <- toEncoder tipe
-      return $ Opt.Call list [ encoder ]
+      return $ Opt.Call A.zero list [ encoder ]
 
 
 encodeArray :: Can.Type -> Names.Tracker Opt.Expr
 encodeArray tipe =
   do  array <- encode "array"
       encoder <- toEncoder tipe
-      return $ Opt.Call array [ encoder ]
+      return $ Opt.Call A.zero array [ encoder ]
 
 
 encodeTuple :: Can.Type -> Can.Type -> Maybe Can.Type -> Names.Tracker Opt.Expr
@@ -111,27 +113,35 @@ encodeTuple a b maybeC =
 
     encodeArg arg tipe =
       do  encoder <- toEncoder tipe
-          return $ Opt.Call encoder [ Opt.VarLocal arg ]
+          return $ Opt.Call A.zero encoder [ Opt.VarLocal A.zero arg ]
   in
   do  list <- encode "list"
-      identity <- Names.registerGlobal ModuleName.basics Name.identity
+      identity <- Names.registerGlobal A.zero ModuleName.basics Name.identity
       arg1 <- encodeArg "a" a
       arg2 <- encodeArg "b" b
 
       case maybeC of
         Nothing ->
-          return $ Opt.Function [Name.dollar] $
+          return $ Opt.Function [A.At A.zero Name.dollar] $
             let_ "a" Index.first $
             let_ "b" Index.second $
-              Opt.Call list [ identity, Opt.List [ arg1, arg2 ] ]
+              Opt.Call A.zero list
+                [ identity
+                , Opt.List A.zero
+                    [ arg1, arg2 ]
+                ]
 
         Just c ->
           do  arg3 <- encodeArg "c" c
-              return $ Opt.Function [Name.dollar] $
+              return $ Opt.Function [A.At A.zero Name.dollar] $
                 let_ "a" Index.first $
                 let_ "b" Index.second $
                 let_ "c" Index.third $
-                  Opt.Call list [ identity, Opt.List [ arg1, arg2, arg3 ] ]
+                  Opt.Call A.zero list
+                    [ identity
+                    , Opt.List A.zero
+                        [ arg1, arg2, arg3 ]
+                    ]
 
 
 
@@ -143,7 +153,7 @@ toFlagsDecoder tipe =
   case tipe of
     Can.TUnit ->
       do  succeed <- decode "succeed"
-          return $ Opt.Call succeed [ Opt.Unit ]
+          return $ Opt.Call A.zero succeed [ Opt.Unit ]
 
     _ ->
       toDecoder tipe
@@ -201,8 +211,8 @@ toDecoder tipe =
 
 decodeMaybe :: Can.Type -> Names.Tracker Opt.Expr
 decodeMaybe tipe =
-  do  nothing <- Names.registerGlobal ModuleName.maybe "Nothing"
-      just    <- Names.registerGlobal ModuleName.maybe "Just"
+  do  nothing <- Names.registerGlobal A.zero ModuleName.maybe "Nothing"
+      just    <- Names.registerGlobal A.zero ModuleName.maybe "Just"
 
       oneOf <- decode "oneOf"
       null  <- decode "null"
@@ -211,10 +221,10 @@ decodeMaybe tipe =
       subDecoder <- toDecoder tipe
 
       return $
-        Opt.Call oneOf
-          [ Opt.List
-              [ Opt.Call null [ nothing ]
-              , Opt.Call map_ [ just, subDecoder ]
+        Opt.Call A.zero oneOf
+          [ Opt.List A.zero
+              [ Opt.Call A.zero null [ nothing ]
+              , Opt.Call A.zero map_ [ just, subDecoder ]
               ]
           ]
 
@@ -226,7 +236,7 @@ decodeList :: Can.Type -> Names.Tracker Opt.Expr
 decodeList tipe =
   do  list <- decode "list"
       decoder <- toDecoder tipe
-      return $ Opt.Call list [ decoder ]
+      return $ Opt.Call A.zero list [ decoder ]
 
 
 
@@ -237,7 +247,7 @@ decodeArray :: Can.Type -> Names.Tracker Opt.Expr
 decodeArray tipe =
   do  array <- decode "array"
       decoder <- toDecoder tipe
-      return $ Opt.Call array [ decoder ]
+      return $ Opt.Call A.zero array [ decoder ]
 
 
 
@@ -247,7 +257,7 @@ decodeArray tipe =
 decodeTuple0 :: Names.Tracker Opt.Expr
 decodeTuple0 =
   do  null <- decode "null"
-      return (Opt.Call null [ Opt.Unit ])
+      return (Opt.Call A.zero null [ Opt.Unit ])
 
 
 decodeTuple :: Can.Type -> Can.Type -> Maybe Can.Type -> Names.Tracker Opt.Expr
@@ -257,18 +267,18 @@ decodeTuple a b maybeC =
         Nothing ->
           let tuple = Opt.Tuple (toLocal 0) (toLocal 1) Nothing in
           indexAndThen 0 a =<<
-            indexAndThen 1 b (Opt.Call succeed [tuple])
+            indexAndThen 1 b (Opt.Call A.zero succeed [tuple])
 
         Just c ->
           let tuple = Opt.Tuple (toLocal 0) (toLocal 1) (Just (toLocal 2)) in
           indexAndThen 0 a =<<
             indexAndThen 1 b =<<
-              indexAndThen 2 c (Opt.Call succeed [tuple])
+              indexAndThen 2 c (Opt.Call A.zero succeed [tuple])
 
 
 toLocal :: Int -> Opt.Expr
 toLocal index =
-  Opt.VarLocal (Name.fromVarIndex index)
+  Opt.VarLocal A.zero (Name.fromVarIndex index)
 
 
 indexAndThen :: Int -> Can.Type -> Opt.Expr -> Names.Tracker Opt.Expr
@@ -277,9 +287,9 @@ indexAndThen i tipe decoder =
       index <- decode "index"
       typeDecoder <- toDecoder tipe
       return $
-        Opt.Call andThen
-          [ Opt.Function [Name.fromVarIndex i] decoder
-          , Opt.Call index [ Opt.Int i, typeDecoder ]
+        Opt.Call A.zero andThen
+          [ Opt.Function [A.At A.zero (Name.fromVarIndex i)] decoder
+          , Opt.Call A.zero index [ Opt.Int A.zero i, typeDecoder ]
           ]
 
 
@@ -291,13 +301,13 @@ decodeRecord :: Map.Map Name.Name Can.FieldType -> Names.Tracker Opt.Expr
 decodeRecord fields =
   let
     toFieldExpr name _ =
-      Opt.VarLocal name
+      Opt.VarLocal A.zero name
 
     record =
-      Opt.Record (Map.mapWithKey toFieldExpr fields)
+      Opt.Record A.zero (Map.mapKeys (A.At A.zero) (Map.mapWithKey toFieldExpr fields))
   in
     do  succeed <- decode "succeed"
-        foldM fieldAndThen (Opt.Call succeed [record]) =<<
+        foldM fieldAndThen (Opt.Call A.zero succeed [record]) =<<
           Names.registerFieldDict fields (Map.toList fields)
 
 
@@ -307,9 +317,9 @@ fieldAndThen decoder (key, Can.FieldType _ tipe) =
       field <- decode "field"
       typeDecoder <- toDecoder tipe
       return $
-        Opt.Call andThen
-          [ Opt.Function [key] decoder
-          , Opt.Call field [ Opt.Str (Name.toElmString key), typeDecoder ]
+        Opt.Call A.zero andThen
+          [ Opt.Function [A.At A.zero key] decoder
+          , Opt.Call A.zero field [ Opt.Str A.zero (Name.toElmString key), typeDecoder ]
           ]
 
 
@@ -319,9 +329,9 @@ fieldAndThen decoder (key, Can.FieldType _ tipe) =
 
 encode :: Name.Name -> Names.Tracker Opt.Expr
 encode name =
-  Names.registerGlobal ModuleName.jsonEncode name
+  Names.registerGlobal A.zero ModuleName.jsonEncode name
 
 
 decode :: Name.Name -> Names.Tracker Opt.Expr
 decode name =
-  Names.registerGlobal ModuleName.jsonDecode name
+  Names.registerGlobal A.zero ModuleName.jsonDecode name

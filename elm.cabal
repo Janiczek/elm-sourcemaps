@@ -142,6 +142,8 @@ Executable elm
         Generate.JavaScript.Functions
         Generate.JavaScript.Name
         Generate.Mode
+        Generate.SourceMap
+        Generate.VLQ
         Nitpick.Debug
         Nitpick.PatternMatches
         Optimize.Case
@@ -197,6 +199,7 @@ Executable elm
         ansi-terminal,
         ansi-wl-pprint < 1,
         base,
+        base64-bytestring,
         binary,
         bytestring,
         containers,
@@ -211,6 +214,7 @@ Executable elm
         http-client,
         http-client-tls,
         http-types,
+        indexed-traversable,
         language-glsl,
         mtl,
         network,

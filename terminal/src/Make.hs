@@ -12,6 +12,7 @@ module Make
 
 
 import qualified Data.ByteString.Builder as B
+import Data.Map (Map)
 import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NE
 import qualified System.Directory as Dir
@@ -22,9 +23,13 @@ import qualified BackgroundWriter as BW
 import qualified Build
 import qualified Elm.Details as Details
 import qualified Elm.ModuleName as ModuleName
+import qualified Elm.Outline as Outline
 import qualified File
 import qualified Generate
 import qualified Generate.Html as Html
+import qualified Generate.JavaScript as JS
+import qualified Generate.SourceMap as SourceMap
+import Generate.SourceMap (SourceMap)
 import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
@@ -40,6 +45,7 @@ data Flags =
   Flags
     { _debug :: Bool
     , _optimize :: Bool
+    , _sourceMaps :: Bool
     , _output :: Maybe Output
     , _report :: Maybe ReportType
     , _docs :: Maybe FilePath
@@ -64,7 +70,7 @@ type Task a = Task.Task Exit.Make a
 
 
 run :: [FilePath] -> Flags -> IO ()
-run paths flags@(Flags _ _ _ report _) =
+run paths flags@(Flags _ _ _ _ report _) =
   do  style <- getStyle report
       maybeRoot <- Stuff.findRoot
       Reporting.attemptWithStyle style Exit.makeToReport $
@@ -74,7 +80,7 @@ run paths flags@(Flags _ _ _ report _) =
 
 
 runHelp :: FilePath -> [FilePath] -> Reporting.Style -> Flags -> IO (Either Exit.Make ())
-runHelp root paths style (Flags debug optimize maybeOutput _ maybeDocs) =
+runHelp root paths style (Flags debug optimize withSourceMaps maybeOutput _ maybeDocs) =
   BW.withScope $ \scope ->
   Stuff.withRootLock root $ Task.run $
   do  desiredMode <- getMode debug optimize
@@ -93,12 +99,14 @@ runHelp root paths style (Flags debug optimize maybeOutput _ maybeDocs) =
                       return ()
 
                     [name] ->
-                      do  builder <- toBuilder root details desiredMode artifacts
-                          generate style "index.html" (Html.sandwich name builder) (NE.List name [])
+                      do  (JS.GeneratedResult source sourceMap) <- generate root details desiredMode artifacts
+                          bundle <- prepareOutput withSourceMaps root Html.leadingLines sourceMap source
+                          writeToDisk style "index.html" (Html.sandwich name bundle) (NE.List name [])
 
                     name:names ->
-                      do  builder <- toBuilder root details desiredMode artifacts
-                          generate style "elm.js" builder (NE.List name names)
+                      do  (JS.GeneratedResult source sourceMap) <- generate root details desiredMode artifacts
+                          bundle <- prepareOutput withSourceMaps root 0 sourceMap source
+                          writeToDisk style "elm.js" bundle (NE.List name names)
 
                 Just DevNull ->
                   return ()
@@ -106,16 +114,18 @@ runHelp root paths style (Flags debug optimize maybeOutput _ maybeDocs) =
                 Just (JS target) ->
                   case getNoMains artifacts of
                     [] ->
-                      do  builder <- toBuilder root details desiredMode artifacts
-                          generate style target builder (Build.getRootNames artifacts)
+                      do  (JS.GeneratedResult source sourceMap) <- generate root details desiredMode artifacts
+                          bundle <- prepareOutput withSourceMaps root 0 sourceMap source
+                          writeToDisk style target bundle (Build.getRootNames artifacts)
 
                     name:names ->
                       Task.throw (Exit.MakeNonMainFilesIntoJavaScript name names)
 
                 Just (Html target) ->
                   do  name <- hasOneMain artifacts
-                      builder <- toBuilder root details desiredMode artifacts
-                      generate style target (Html.sandwich name builder) (NE.List name [])
+                      (JS.GeneratedResult source sourceMap) <- generate root details desiredMode artifacts
+                      bundle <- prepareOutput withSourceMaps root Html.leadingLines sourceMap source
+                      writeToDisk style target (Html.sandwich name bundle) (NE.List name [])
 
 
 
@@ -137,6 +147,11 @@ getMode debug optimize =
     (False, False) -> return Dev
     (False, True ) -> return Prod
 
+rereadSources :: FilePath -> IO (Map ModuleName.Canonical String)
+rereadSources root =
+  do
+    modulePaths <- Outline.getAllModulePaths root
+    traverse readFile modulePaths
 
 getExposed :: Details.Details -> Task (NE.List ModuleName.Raw)
 getExposed (Details.Details _ validOutline _ _ _ _) =
@@ -237,31 +252,35 @@ getNoMain modules root =
 
 
 
--- GENERATE
+-- WRITE TO DISK
 
+prepareOutput :: Bool -> FilePath -> Int -> SourceMap -> B.Builder -> Task B.Builder
+prepareOutput enabled root leadingLines sourceMap source =
+  if enabled
+    then do
+      moduleSources <- Task.io $ rereadSources root
+      return $ SourceMap.generateOnto leadingLines moduleSources sourceMap source
+    else return source
 
-generate :: Reporting.Style -> FilePath -> B.Builder -> NE.List ModuleName.Raw -> Task ()
-generate style target builder names =
+writeToDisk :: Reporting.Style -> FilePath -> B.Builder -> NE.List ModuleName.Raw -> Task ()
+writeToDisk style target builder names =
   Task.io $
-    do  Dir.createDirectoryIfMissing True (FP.takeDirectory target)
-        File.writeBuilder target builder
-        Reporting.reportGenerate style names target
+    do
+      Dir.createDirectoryIfMissing True (FP.takeDirectory target)
+      File.writeBuilder target builder
+      Reporting.reportGenerate style names target
 
-
-
--- TO BUILDER
-
+-- GENERATE
 
 data DesiredMode = Debug | Dev | Prod
 
-
-toBuilder :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Task B.Builder
-toBuilder root details desiredMode artifacts =
+generate :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Task JS.GeneratedResult
+generate root details desiredMode artifacts =
   Task.mapError Exit.MakeBadGenerate $
     case desiredMode of
       Debug -> Generate.debug root details artifacts
-      Dev   -> Generate.dev   root details artifacts
-      Prod  -> Generate.prod  root details artifacts
+      Dev -> Generate.dev root details artifacts
+      Prod -> Generate.prod root details artifacts
 
 
 

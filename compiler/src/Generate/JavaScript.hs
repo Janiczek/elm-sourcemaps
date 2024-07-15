@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Generate.JavaScript
-  ( generate
+  ( GeneratedResult (..)
+  , generate
   , generateForRepl
   , generateForReplEndpoint
   )
@@ -9,6 +10,7 @@ module Generate.JavaScript
 
 import Prelude hiding (cycle, print)
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy.Char8 as BLazy
 import Data.Monoid ((<>))
 import qualified Data.List as List
 import Data.Map ((!))
@@ -22,10 +24,12 @@ import qualified AST.Optimized as Opt
 import qualified Data.Index as Index
 import qualified Elm.Kernel as K
 import qualified Elm.ModuleName as ModuleName
+import qualified Reporting.Annotation as A
 import qualified Generate.JavaScript.Builder as JS
 import qualified Generate.JavaScript.Expression as Expr
 import qualified Generate.JavaScript.Functions as Functions
 import qualified Generate.JavaScript.Name as JsName
+import qualified Generate.SourceMap as SourceMap
 import qualified Generate.Mode as Mode
 import qualified Reporting.Doc as D
 import qualified Reporting.Render.Type as RT
@@ -39,41 +43,37 @@ import qualified Reporting.Render.Type.Localizer as L
 type Graph = Map.Map Opt.Global Opt.Node
 type Mains = Map.Map ModuleName.Canonical Opt.Main
 
+data GeneratedResult = GeneratedResult
+  { _source :: B.Builder
+  , _sourceMap :: SourceMap.SourceMap
+  }
 
-generate :: Mode.Mode -> Opt.GlobalGraph -> Mains -> B.Builder
-generate mode (Opt.GlobalGraph graph _) mains =
-  let
-    state = Map.foldrWithKey (addMain mode graph) emptyState mains
-  in
+prelude :: B.Builder
+prelude =
   "(function(scope){\n'use strict';"
   <> Functions.functions
-  <> perfNote mode
-  <> stateToBuilder state
-  <> toMainExports mode mains
-  <> "}(this));"
 
+firstGeneratedLineNumber :: Int
+firstGeneratedLineNumber =
+  (fromIntegral $ BLazy.count '\n' $ B.toLazyByteString prelude) + 1
+
+generate :: Mode.Mode -> Opt.GlobalGraph -> Mains -> GeneratedResult
+generate mode (Opt.GlobalGraph graph _) mains =
+  let state = Map.foldrWithKey (addMain mode graph) (emptyState firstGeneratedLineNumber) mains
+      builder =
+        prelude
+          <> stateToBuilder state
+          <> toMainExports mode mains
+          <> "}(this.module ? this.module.exports : this));"
+      sourceMap = SourceMap.wrap $ stateToMappings state
+   in GeneratedResult
+        {_source = builder
+        , _sourceMap = sourceMap
+        }
 
 addMain :: Mode.Mode -> Graph -> ModuleName.Canonical -> Opt.Main -> State -> State
 addMain mode graph home _ state =
   addGlobal mode graph state (Opt.Global home "main")
-
-
-perfNote :: Mode.Mode -> B.Builder
-perfNote mode =
-  case mode of
-    Mode.Prod _ ->
-      ""
-
-    Mode.Dev Nothing ->
-      "console.warn('Compiled in DEV mode. Follow the advice at "
-      <> B.stringUtf8 (D.makeNakedLink "optimize")
-      <> " for better performance and smaller assets.');"
-
-    Mode.Dev (Just _) ->
-      "console.warn('Compiled in DEBUG mode. Follow the advice at "
-      <> B.stringUtf8 (D.makeNakedLink "optimize")
-      <> " for better performance and smaller assets.');"
-
 
 
 -- GENERATE FOR REPL
@@ -83,7 +83,7 @@ generateForRepl :: Bool -> L.Localizer -> Opt.GlobalGraph -> ModuleName.Canonica
 generateForRepl ansi localizer (Opt.GlobalGraph graph _) home name (Can.Forall _ tipe) =
   let
     mode = Mode.Dev Nothing
-    debugState = addGlobal mode graph emptyState (Opt.Global ModuleName.debug "toString")
+    debugState = addGlobal mode graph (emptyState 0) (Opt.Global ModuleName.debug "toString")
     evalState = addGlobal mode graph debugState (Opt.Global home name)
   in
   "process.on('uncaughtException', function(err) { process.stderr.write(err.toString() + '\\n'); process.exit(1); });"
@@ -119,7 +119,7 @@ generateForReplEndpoint localizer (Opt.GlobalGraph graph _) home maybeName (Can.
   let
     name = maybe Name.replValueToPrint id maybeName
     mode = Mode.Dev Nothing
-    debugState = addGlobal mode graph emptyState (Opt.Global ModuleName.debug "toString")
+    debugState = addGlobal mode graph (emptyState 0) (Opt.Global ModuleName.debug "toString")
     evalState = addGlobal mode graph debugState (Opt.Global home name)
   in
   Functions.functions
@@ -149,56 +149,52 @@ postMessage localizer home maybeName tipe =
 
 data State =
   State
-    { _revKernels :: [B.Builder]
-    , _revBuilders :: [B.Builder]
-    , _seenGlobals :: Set.Set Opt.Global
+    { _seenGlobals :: Set.Set Opt.Global
+    , _builder :: JS.Builder
     }
 
 
-emptyState :: State
-emptyState =
-  State mempty [] Set.empty
+emptyState :: Int -> State
+emptyState startingLine =
+  State Set.empty (JS.emptyBuilder startingLine)
 
 
 stateToBuilder :: State -> B.Builder
-stateToBuilder (State revKernels revBuilders _) =
-  prependBuilders revKernels (prependBuilders revBuilders mempty)
+stateToBuilder (State _ builder) =
+  JS._code builder
 
-
-prependBuilders :: [B.Builder] -> B.Builder -> B.Builder
-prependBuilders revBuilders monolith =
-  List.foldl' (\m b -> b <> m) monolith revBuilders
-
-
+stateToMappings :: State -> [JS.Mapping]
+stateToMappings (State _ builder) =
+  JS._mappings builder
 
 -- ADD DEPENDENCIES
 
 
 addGlobal :: Mode.Mode -> Graph -> State -> Opt.Global -> State
-addGlobal mode graph state@(State revKernels builders seen) global =
+addGlobal mode graph state@(State seen builder) global =
   if Set.member global seen then
     state
   else
     addGlobalHelp mode graph global $
-      State revKernels builders (Set.insert global seen)
+      State (Set.insert global seen) builder
 
 
 addGlobalHelp :: Mode.Mode -> Graph -> Opt.Global -> State -> State
-addGlobalHelp mode graph global state =
+addGlobalHelp mode graph global@(Opt.Global home _) state =
   let
     addDeps deps someState =
       Set.foldl' (addGlobal mode graph) someState deps
   in
   case graph ! global of
-    Opt.Define expr deps ->
+    Opt.Define region expr deps ->
       addStmt (addDeps deps state) (
-        var global (Expr.generate mode expr)
+        trackedVar region global (Expr.generate mode home expr)
       )
 
-    Opt.DefineTailFunc argNames body deps ->
+    Opt.DefineTailFunc region argNames body deps ->
       addStmt (addDeps deps state) (
         let (Opt.Global _ name) = global in
-        var global (Expr.generateTailDef mode name argNames body)
+        trackedVar region global (Expr.generateTailDef mode home name argNames body)
       )
 
     Opt.Ctor index arity ->
@@ -221,7 +217,7 @@ addGlobalHelp mode graph global state =
       if isDebugger global && not (Mode.isDebug mode) then
         state
       else
-        addKernel (addDeps deps state) (generateKernel mode chunks)
+        addDeps deps (addKernel state (generateKernel mode chunks))
 
     Opt.Enum index ->
       addStmt state (
@@ -245,23 +241,23 @@ addGlobalHelp mode graph global state =
 
 
 addStmt :: State -> JS.Stmt -> State
-addStmt state stmt =
-  addBuilder state (JS.stmtToBuilder stmt)
-
-
-addBuilder :: State -> B.Builder -> State
-addBuilder (State revKernels revBuilders seen) builder =
-  State revKernels (builder:revBuilders) seen
+addStmt (State seen builder) stmt =
+  State seen (JS.stmtToBuilder stmt builder)
 
 
 addKernel :: State -> B.Builder -> State
-addKernel (State revKernels revBuilders seen) kernel =
-  State (kernel:revKernels) revBuilders seen
+addKernel (State seen builder) kernel =
+  State seen (JS.addByteString kernel builder)
 
 
 var :: Opt.Global -> Expr.Code -> JS.Stmt
 var (Opt.Global home name) code =
   JS.Var (JsName.fromGlobal home name) (Expr.codeToExpr code)
+
+
+trackedVar :: A.Region -> Opt.Global -> Expr.Code -> JS.Stmt
+trackedVar (A.Region startPos _) (Opt.Global home name) code =
+  JS.TrackedVar home startPos (JsName.fromGlobalHumanReadable home name) (JsName.fromGlobal home name) (Expr.codeToExpr code)
 
 
 isDebugger :: Opt.Global -> Bool
@@ -300,17 +296,17 @@ generateCycle mode (Opt.Global home _) names values functions =
 generateCycleFunc :: Mode.Mode -> ModuleName.Canonical -> Opt.Def -> JS.Stmt
 generateCycleFunc mode home def =
   case def of
-    Opt.Def name expr ->
-      JS.Var (JsName.fromGlobal home name) (Expr.codeToExpr (Expr.generate mode expr))
+    Opt.Def _ name expr ->
+      JS.Var (JsName.fromGlobal home name) (Expr.codeToExpr (Expr.generate mode home expr))
 
-    Opt.TailDef name args expr ->
-      JS.Var (JsName.fromGlobal home name) (Expr.codeToExpr (Expr.generateTailDef mode name args expr))
+    Opt.TailDef _ name args expr ->
+      JS.Var (JsName.fromGlobal home name) (Expr.codeToExpr (Expr.generateTailDef mode home name args expr))
 
 
 generateSafeCycle :: Mode.Mode -> ModuleName.Canonical -> (Name.Name, Opt.Expr) -> JS.Stmt
 generateSafeCycle mode home (name, expr) =
   JS.FunctionStmt (JsName.fromCycle home name) [] $
-    Expr.codeToStmtList (Expr.generate mode expr)
+    Expr.codeToStmtList (Expr.generate mode home expr)
 
 
 generateRealCycle :: ModuleName.Canonical -> (Name.Name, expr) -> JS.Stmt
@@ -429,7 +425,7 @@ generatePort mode (Opt.Global home name) makePort converter =
   JS.Var (JsName.fromGlobal home name) $
     JS.Call (JS.Ref (JsName.fromKernel Name.platform makePort))
       [ JS.String (Name.toBuilder name)
-      , Expr.codeToExpr (Expr.generate mode converter)
+      , Expr.codeToExpr (Expr.generate mode home converter)
       ]
 
 
@@ -520,7 +516,7 @@ generateExports mode (Trie maybeMain subs) =
 
         Just (home, main) ->
           "{'init':"
-          <> JS.exprToBuilder (Expr.generateMain mode home main)
+          <> JS._code (JS.exprToBuilder (Expr.generateMain mode home main) (JS.emptyBuilder 0))
           <> end
     in
     case Map.toList subs of

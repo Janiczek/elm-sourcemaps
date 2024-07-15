@@ -2,6 +2,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Generate.Html
   ( sandwich
+  , leadingLines
   )
   where
 
@@ -14,6 +15,8 @@ import Text.RawString.QQ (r)
 
 
 -- SANDWICH
+leadingLines :: Int
+leadingLines = 2
 
 
 sandwich :: Name.Name -> B.Builder -> B.Builder

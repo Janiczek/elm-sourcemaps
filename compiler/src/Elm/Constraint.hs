@@ -13,6 +13,7 @@ module Elm.Constraint
   , untilNextMajor
   , untilNextMinor
   , expand
+  , lowerBound
   --
   , Error(..)
   , decoder
@@ -45,6 +46,10 @@ data Op
   | LessOrEqual
   deriving (Eq)
 
+
+lowerBound :: Constraint -> V.Version
+lowerBound (Range lower _ _ _) =
+  lower
 
 
 -- COMMON CONSTRAINTS

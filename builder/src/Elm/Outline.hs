@@ -12,6 +12,7 @@ module Elm.Outline
   , decoder
   , defaultSummary
   , flattenExposed
+  , getAllModulePaths
   )
   where
 
@@ -19,9 +20,13 @@ module Elm.Outline
 import Prelude hiding (read)
 import Control.Monad (filterM, liftM)
 import Data.Binary (Binary, get, put, getWord8, putWord8)
+import Data.Function ((&))
+import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
 import qualified Data.OneOrMore as OneOrMore
+import qualified Stuff
 import Foreign.Ptr (minusPtr)
 import qualified System.Directory as Dir
 import qualified System.FilePath as FP
@@ -261,6 +266,62 @@ isDup paths =
     OneOrMore.One _    -> Nothing
     OneOrMore.More a b -> Just (OneOrMore.getFirstTwo a b)
 
+
+getAllModulePaths :: FilePath -> IO (Map.Map ModuleName.Canonical FilePath)
+getAllModulePaths root =
+  do
+    outlineResult <- read root
+    case outlineResult of
+      Left _ ->
+        return Map.empty
+      Right outline ->
+        case outline of
+          App appOutline ->
+            let deps = Map.union (_app_deps_direct appOutline) (_app_deps_indirect appOutline)
+                srcDirs = map (toAbsolute root) (NE.toList (_app_source_dirs appOutline))
+             in getAllModulePathsHelper Pkg.dummyName srcDirs deps
+          Pkg pkgOutline ->
+            let deps = Map.map Con.lowerBound (_pkg_deps pkgOutline)
+             in getAllModulePathsHelper (_pkg_name pkgOutline) [root </> "src"] deps
+
+getAllModulePathsHelper :: Pkg.Name -> [FilePath] -> Map.Map Pkg.Name V.Version -> IO (Map.Map ModuleName.Canonical FilePath)
+getAllModulePathsHelper packageName packageSrcDirs deps =
+  do
+    elmFiles <- traverse recursiveFindElmFiles packageSrcDirs
+    let asMap = Map.fromList $ map (\(root, fp) -> (ModuleName.Canonical packageName (moduleNameFromFilePath root fp), fp)) (concat elmFiles)
+    dependencyRoots <- Map.traverseWithKey resolvePackagePaths deps
+    dependencyMaps <- traverse (\(pkgName, pkgRoot) -> getAllModulePathsHelper pkgName [pkgRoot </> "src"] Map.empty) dependencyRoots
+    return $ foldr Map.union asMap dependencyMaps
+
+recursiveFindElmFiles :: FilePath -> IO [(FilePath, FilePath)]
+recursiveFindElmFiles root = do
+  files <- recursiveFindElmFilesHelp root
+  return $ map (\f -> (root, f)) files
+
+recursiveFindElmFilesHelp :: FilePath -> IO [FilePath]
+recursiveFindElmFilesHelp root =
+  do
+    dirContents <- Dir.getDirectoryContents root
+    let (elmFiles, others) = List.partition (List.isSuffixOf ".elm") dirContents
+    subDirectories <- filterM (\fp -> Dir.doesDirectoryExist (root </> fp)) (filter (\fp -> fp /= "." && fp /= "..") others)
+    filesFromSubDirs <- traverse (recursiveFindElmFilesHelp . (root </>)) subDirectories
+    return $ concat filesFromSubDirs ++ map (\fp -> root </> fp) elmFiles
+
+moduleNameFromFilePath :: FilePath -> FilePath -> Name.Name
+moduleNameFromFilePath root filePath =
+  filePath
+    & drop (List.length root + 1)
+    & reverse
+    & drop 4 -- .elm
+    & reverse
+    & map (\c -> if c == '/' then '.' else c)
+    & Name.fromChars
+
+resolvePackagePaths :: Pkg.Name -> V.Version -> IO (Pkg.Name, FilePath)
+resolvePackagePaths pkgName vsn =
+  do
+    packageCache <- Stuff.getPackageCache
+    return (pkgName, Stuff.package packageCache pkgName vsn)
 
 
 -- JSON DECODE

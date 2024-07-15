@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wall #-}
-{-# LANGUAGE OverloadedStrings #-}
 module Canonicalize.Expression
   ( canonicalize
   , FreeLocals
@@ -138,14 +136,14 @@ canonicalize env (A.At region expression) =
     Src.Update (A.At reg name) fields ->
       let
         makeCanFields =
-          Dups.checkFields' (\r t -> Can.FieldUpdate r <$> canonicalize env t) fields
+          Dups.checkLocatedFields' (\r t -> Can.FieldUpdate r <$> canonicalize env t) fields
       in
       Can.Update name
         <$> (A.At reg <$> findVar reg env name)
         <*> (sequenceA =<< makeCanFields)
 
     Src.Record fields ->
-      do  fieldDict <- Dups.checkFields fields
+      do  fieldDict <- Dups.checkLocatedFields fields
           Can.Record <$> traverse (canonicalize env) fieldDict
 
     Src.Unit ->
