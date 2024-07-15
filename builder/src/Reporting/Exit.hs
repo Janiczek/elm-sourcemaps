@@ -7,7 +7,6 @@ module Reporting.Exit
   , Repl(..), replToReport
   , Publish(..), publishToReport
   , Install(..), installToReport
-  , Reactor(..), reactorToReport
   , newPackageOverview
   --
   , Solver(..)
@@ -1997,37 +1996,6 @@ corruptCacheReport =
         \ causing problems your the elm-stuff/ directory. Try disabling 3rd party tools\
         \ one by one until you figure out which it is!"
     ]
-
-
-
--- REACTOR
-
-
-data Reactor
-  = ReactorNoOutline
-  | ReactorBadDetails Details
-  | ReactorBadBuild BuildProblem
-  | ReactorBadGenerate Generate
-
-
-reactorToReport :: Reactor -> Help.Report
-reactorToReport problem =
-  case problem of
-    ReactorNoOutline ->
-      Help.report "NEW PROJECT?" Nothing
-        "Are you trying to start a new project? Try this command in the terminal:"
-        [ D.indent 4 $ D.green "elm init"
-        , D.reflow "It will help you get started!"
-        ]
-
-    ReactorBadDetails details ->
-      toDetailsReport details
-
-    ReactorBadBuild buildProblem ->
-      toBuildProblemReport buildProblem
-
-    ReactorBadGenerate generate ->
-      toGenerateReport generate
 
 
 

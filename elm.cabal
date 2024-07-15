@@ -68,12 +68,6 @@ Executable elm
         Terminal.Helpers
         Terminal.Internal
 
-        -- from terminal/
-        Develop.Generate.Help
-        Develop.Generate.Index
-        Develop.StaticFiles
-        Develop.StaticFiles.Build
-
         -- from builder/
         Build
         BackgroundWriter

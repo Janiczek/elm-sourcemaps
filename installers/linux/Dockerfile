@@ -26,7 +26,6 @@ WORKDIR /elm
 # Import source code
 COPY builder builder
 COPY compiler compiler
-COPY reactor reactor
 COPY terminal terminal
 COPY cabal.config elm.cabal LICENSE ./
 

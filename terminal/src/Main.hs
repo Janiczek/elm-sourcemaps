@@ -16,7 +16,6 @@ import Terminal
 import Terminal.Helpers
 
 import qualified Bump
-import qualified Develop
 import qualified Diff
 import qualified Init
 import qualified Install
@@ -34,7 +33,6 @@ main =
   Terminal.app intro outro
     [ repl
     , init
-    , reactor
     , make
     , install
     , bump
@@ -129,46 +127,6 @@ interpreter =
     }
 
 
-
--- REACTOR
-
-
-reactor :: Terminal.Command
-reactor =
-  let
-    summary =
-      "Compile code with a click. It opens a file viewer in your browser, and\
-      \ when you click on an Elm file, it compiles and you see the result."
-
-    details =
-      "The `reactor` command starts a local server on your computer:"
-
-    example =
-      reflow
-        "After running that command, you would have a server at <http://localhost:8000>\
-        \ that helps with development. It shows your files like a file viewer. If you\
-        \ click on an Elm file, it will compile it for you! And you can just press\
-        \ the refresh button in the browser to recompile things."
-
-    reactorFlags =
-      flags Develop.Flags
-        |-- flag "port" port_ "The port of the server (default: 8000)"
-  in
-  Terminal.Command "reactor" (Common summary) details example noArgs reactorFlags Develop.run
-
-
-port_ :: Parser Int
-port_ =
-  Parser
-    { _singular = "port"
-    , _plural = "ports"
-    , _parser = readMaybe
-    , _suggest = \_ -> return []
-    , _examples = \_ -> return ["3000","8000"]
-    }
-
-
-
 -- MAKE
 
 
@@ -194,7 +152,7 @@ make =
         |-- onOff "optimize" "Turn on optimizations to make code smaller and faster. For example, the compiler renames record fields to be as short as possible and unboxes values to reduce allocation."
         |-- flag "output" Make.output "Specify the name of the resulting JS file. For example --output=assets/elm.js to generate the JS at assets/elm.js or --output=/dev/null to generate no output at all!"
         |-- flag "report" Make.reportType "You can say --report=json to get error messages as JSON. This is only really useful if you are an editor plugin. Humans should avoid it!"
-        |-- flag "docs" Make.docsFile "Generate a JSON file of documentation for a package. Eventually it will be possible to preview docs with `reactor` because it is quite hard to deal with these JSON files directly."
+        |-- flag "docs" Make.docsFile "Generate a JSON file of documentation for a package."
   in
   Terminal.Command "make" Uncommon details example (zeroOrMore elmFile) makeFlags Make.run
 
