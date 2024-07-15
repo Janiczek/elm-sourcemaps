@@ -1,22 +1,18 @@
-# Elm
+# elm-sourcemaps
 
-A delightful language for reliable webapps.
+A fork of [elm/compiler](https://github.com/elm/compiler) that adds support for sourcemaps (from the [gren/compiler PR #205](https://github.com/gren-lang/compiler/pull/205)).
 
-Check out the [Home Page](http://elm-lang.org/), [Try Online](http://elm-lang.org/try), or [The Official Guide](http://guide.elm-lang.org/)
+## Build
 
+```
+stack build
+stack install
+```
 
-<br>
+## Usage
 
-## Install
+```
+elm-sourcemaps make --sourcemaps --output=elm.js src/Main.elm
+```
 
-✨ [Install](https://guide.elm-lang.org/install/elm.html) ✨
-
-For multiple versions, previous versions, and uninstallation, see the instructions [here](https://github.com/elm/compiler/blob/master/installers/README.md).
-
-<br>
-
-## Help
-
-If you are stuck, ask around on [the Elm slack channel][slack]. Folks are friendly and happy to help with questions!
-
-[slack]: http://elmlang.herokuapp.com/
+This will compile Elm just like the official binary would, but it will also add the sourcemap to the JS file.

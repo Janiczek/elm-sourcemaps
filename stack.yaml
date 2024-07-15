@@ -4,11 +4,6 @@
 # For advanced use and comprehensive documentation of the format, please see:
 # https://docs.haskellstack.org/en/stable/yaml_configuration/
 
-# A warning or info to be displayed to the user on config load.
-user-message: |
-  Warning (added by new or init): Some packages were found to have names conflicting with others and have been commented out in the packages section.
-  You can omit this message by removing it from stack.yaml
-
 # Resolver to choose a 'specific' stackage snapshot or a compiler version.
 # A snapshot resolver dictates the compiler version and the set of packages
 # to be used for project dependencies. For example:
@@ -36,10 +31,6 @@ resolver:
 #   - wai
 packages:
 - .
-# The following packages have been ignored due to package name conflict 
-# with other packages.
-#- worker
-
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as
 # forks / in-progress versions pinned to a git hash. For example:
@@ -49,6 +40,7 @@ packages:
 # - git: https://github.com/commercialhaskell/stack.git
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
+# extra-deps: []
 extra-deps:
 - ansi-wl-pprint-0.6.9@sha256:fb737bc96e2aef34ad595d54ced7a73f648c521ebcb00fe0679aff45ccd49212,2448
 

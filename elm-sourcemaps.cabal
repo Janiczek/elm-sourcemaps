@@ -1,21 +1,22 @@
 
-Name: elm
+Name: elm-sourcemaps
 Version: 0.19.1
 
 Synopsis:
-    Perform tasks for various Elm websites
+    The `elm-sourcemaps` command line interface.
 
 Description:
-    Compile code for the online editor. Maybe do more someday!
+    A fork of elm/compiler that adds support for sourcemaps (from the
+    gren/compiler PR #205). Fork by Martin Janiczek
 
 Homepage: https://elm-lang.org
 
 License: BSD3
-License-file: ../LICENSE
+License-file: LICENSE
 
 Author:     Evan Czaplicki
 Maintainer: info@elm-lang.org
-Copyright:  Copyright (c) 2019-present, Evan Czaplicki
+Copyright:  Copyright (c) 2011-present, Evan Czaplicki
 
 Category: Compiler, Language
 
@@ -24,7 +25,7 @@ Build-type: Simple
 
 source-repository head
     type:     git
-    location: git://github.com/elm/compiler.git
+    location: git://github.com/Janiczek/elm-sourcemaps.git
 
 
 Flag dev {
@@ -33,37 +34,96 @@ Flag dev {
 }
 
 
-Executable worker
-    if flag(dev)
-        ghc-options: -O0 -Wall -Werror
-    else
-        ghc-options: -O2 -rtsopts -threaded "-with-rtsopts=-N -qg"
+Executable elm-sourcemaps
+        ghc-options: -O2 -rtsopts -threaded "-with-rtsopts=-N -qg -A128m"
+        -- add -eventlog for (elm make src/Main.elm +RTS -l; threadscope elm.eventlog)
+        -- https://www.oreilly.com/library/view/parallel-and-concurrent/9781449335939/
 
     Hs-Source-Dirs:
-        src
-        ../compiler/src
-        ../builder/src
-        ../terminal/src
+        compiler/src
+        builder/src
+        terminal/impl
+        terminal/src
+
+    other-extensions:
+        TemplateHaskell
 
     Main-Is:
         Main.hs
 
     other-modules:
-        Artifacts
-        Cors
-        Endpoint.Compile
-        Endpoint.Quotes
-        Endpoint.Repl
-        Endpoint.Slack
+        Bump
+        Diff
+        Init
+        Install
+        Make
+        Publish
+        Repl
 
+        -- terminal args
+        Terminal
+        Terminal.Chomp
+        Terminal.Error
+        Terminal.Helpers
+        Terminal.Internal
+
+        -- from builder/
+        Build
+        BackgroundWriter
+        Deps.Bump
+        Deps.Diff
+        Deps.Registry
+        Deps.Solver
+        Deps.Website
+        File
+        Generate
+        Http
+        Reporting
+        Reporting.Exit
+        Reporting.Exit.Help
+        Reporting.Task
+        Stuff
+
+        -- Elm things
+        Elm.Outline
+        Elm.Details
+        --
+        Elm.Compiler.Imports
+        Elm.Compiler.Type
+        Elm.Compiler.Type.Extract
+        Elm.Constraint
+        Elm.Docs
+        Elm.Float
+        Elm.Interface
+        Elm.Kernel
+        Elm.Licenses
+        Elm.Magnitude
+        Elm.ModuleName
+        Elm.Package
+        Elm.String
+        Elm.Version
+
+        -- data structures
+        Data.Bag
+        Data.Index
+        Data.Map.Utils
+        Data.Name
+        Data.NonEmptyList
+        Data.OneOrMore
+        Data.Utf8
+
+        -- json
+        Json.Decode
+        Json.Encode
+        Json.String
+
+        -- from compiler/
         AST.Canonical
         AST.Optimized
         AST.Source
         AST.Utils.Binop
         AST.Utils.Shader
         AST.Utils.Type
-        BackgroundWriter
-        Build
         Canonicalize.Effects
         Canonicalize.Environment
         Canonicalize.Environment.Dups
@@ -74,34 +134,6 @@ Executable worker
         Canonicalize.Pattern
         Canonicalize.Type
         Compile
-        Data.Bag
-        Data.Index
-        Data.Map.Utils
-        Data.Name
-        Data.NonEmptyList
-        Data.OneOrMore
-        Data.Utf8
-        Deps.Registry
-        Deps.Solver
-        Deps.Website
-        Elm.Compiler.Imports
-        Elm.Compiler.Type
-        Elm.Compiler.Type.Extract
-        Elm.Constraint
-        Elm.Details
-        Elm.Docs
-        Elm.Float
-        Elm.Interface
-        Elm.Kernel
-        Elm.Licenses
-        Elm.Magnitude
-        Elm.ModuleName
-        Elm.Outline
-        Elm.Package
-        Elm.String
-        Elm.Version
-        File
-        Generate
         Generate.Html
         Generate.JavaScript
         Generate.JavaScript.Builder
@@ -109,10 +141,8 @@ Executable worker
         Generate.JavaScript.Functions
         Generate.JavaScript.Name
         Generate.Mode
-        Http
-        Json.Decode
-        Json.Encode
-        Json.String
+        Generate.SourceMap
+        Generate.VLQ
         Nitpick.Debug
         Nitpick.PatternMatches
         Optimize.Case
@@ -127,16 +157,13 @@ Executable worker
         Parse.Module
         Parse.Number
         Parse.Pattern
-        Parse.Primitives
         Parse.Shader
         Parse.Space
         Parse.String
         Parse.Symbol
         Parse.Type
         Parse.Variable
-        Paths_elm
-        Repl
-        Reporting
+        Parse.Primitives
         Reporting.Annotation
         Reporting.Doc
         Reporting.Error
@@ -148,17 +175,13 @@ Executable worker
         Reporting.Error.Pattern
         Reporting.Error.Syntax
         Reporting.Error.Type
-        Reporting.Exit
-        Reporting.Exit.Help
         Reporting.Render.Code
         Reporting.Render.Type
         Reporting.Render.Type.Localizer
         Reporting.Report
         Reporting.Result
         Reporting.Suggest
-        Reporting.Task
         Reporting.Warning
-        Stuff
         Type.Constrain.Expression
         Type.Constrain.Module
         Type.Constrain.Pattern
@@ -169,42 +192,40 @@ Executable worker
         Type.Type
         Type.Unify
         Type.UnionFind
+        Paths_elm_sourcemaps
 
     Build-depends:
-        aeson,
-        ansi-terminal >= 0.8 && < 0.9,
-        ansi-wl-pprint >= 0.6.8 && < 0.7,
-        base >=4.11 && <5,
+        ansi-terminal,
+        ansi-wl-pprint < 1,
+        base,
         base64-bytestring,
-        binary >= 0.8 && < 0.9,
-        bytestring >= 0.9 && < 0.11,
-        containers >= 0.5.8.2 && < 0.6,
-        directory >= 1.2.3.0 && < 2.0,
-        edit-distance >= 0.2 && < 0.3,
+        binary,
+        bytestring,
+        containers,
+        directory,
+        edit-distance,
+        file-embed,
         filelock,
-        filepath >= 1 && < 2.0,
-        ghc-prim >= 0.5.2,
+        filepath,
+        ghc-prim,
         haskeline,
-        HTTP >= 4000.2.5 && < 4000.4,
-        http-client >= 0.6 && < 0.7,
-        http-client-tls >= 0.3 && < 0.4,
-        http-types >= 0.12 && < 1.0,
-        io-streams,
-        language-glsl >= 0.3,
-        mtl >= 2.2.1 && < 3,
-        network >= 2.4 && < 2.7,
-        network-uri,
+        HTTP,
+        http-client,
+        http-client-tls,
+        http-types,
+        indexed-traversable,
+        language-glsl,
+        mtl,
+        network,
         parsec,
         process,
-        random,
         raw-strings-qq,
         scientific,
         SHA,
         snap-core,
         snap-server,
         template-haskell,
-        text,
-        time >= 1.9.1,
+        time,
         unordered-containers,
         utf8-string,
         vector,
