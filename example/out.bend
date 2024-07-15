@@ -1,0 +1,21 @@
+# Hello from Elm->Bend!
+type Array/Array = (Array_elm_builtin arg1 arg2 arg3 arg4)
+type Basics/Bool = True | False
+type Char/Char = Char
+type Dict/Dict = (RBNode_elm_builtin arg1 arg2 arg3 arg4 arg5) | RBEmpty_elm_builtin
+type Basics/Float = Float
+type Basics/Int = Int
+type List/List = Nil | (Cons arg1 arg2)
+type Maybe/Maybe = (Just arg1) | Nothing
+type Dict/NColor = Red | Black
+type Basics/Never = (JustOneMore arg1)
+type Array/Node = (SubTree arg1) | (Leaf arg1)
+type Basics/Order = LT | EQ | GT
+type Result/Result = (Ok arg1) | (Err arg1)
+type Set/Set = (Set_elm_builtin arg1)
+type String/String = Nil | (Cons arg1 arg2)
+type Basics/Unit = Unit
+Basics/add = (@a @b (+ a b))
+Basics/mul = (@a @b (* a b))
+f = (@a @b ((Basics/add) ((Basics/add) ((Basics/mul) (a) 10) (b)) 1))
+main = (((f) 10 20),((f) 1 2))
